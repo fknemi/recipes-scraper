@@ -11,9 +11,9 @@ parser = argparse.ArgumentParser(description='Process some integers.')
 
 
 parser.add_argument('--num-category', type=int, default=sys.maxsize,
-                    help='The number of recipe categories to scrape. The default is 10.')
+                    help='The number of recipe categories to scrape. The default is max.')
 parser.add_argument('--num-recipes', type=int, default=sys.maxsize,
-                    help='The number of recipes to scrape. The default is 10.')
+                    help='The number of recipes to scrape. The default is max.')
 parser.add_argument('--output-file', type=str, default='recipes.json',
                     help='The file to save the scraped recipes to. The default is "recipes.json".')
 
