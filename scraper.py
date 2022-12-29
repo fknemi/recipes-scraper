@@ -1,8 +1,39 @@
+import sys
 import json
 import selenium
 import re
 import requests
+import argparse
 from bs4 import BeautifulSoup
+
+
+parser = argparse.ArgumentParser(description='Process some integers.')
+
+
+parser.add_argument('--num-category', type=int, default=sys.maxsize,
+                    help='The number of recipe categories to scrape. The default is 10.')
+parser.add_argument('--num-recipes', type=int, default=sys.maxsize,
+                    help='The number of recipes to scrape. The default is 10.')
+parser.add_argument('--output-file', type=str, default='recipes.json',
+                    help='The file to save the scraped recipes to. The default is "recipes.json".')
+
+
+args = parser.parse_args()
+
+
+
+num_recipes = args.num_recipes
+num_category = args.num_category
+output_file = args.output_file or "recipes.json"
+
+
+if num_recipes == 0:
+    print("The number of recipes to scrape must be greater than 0.")
+    sys.exit(1)
+if num_category == 0:
+    print("The number of categories to scrape must be greater than 0.")
+    sys.exit(1)
+
 
 recipe_url_regex = r"https://www\.allrecipes\.com/recipe/\d+/.+"
 recipes_url_regex = r"https:\/\/www\.allrecipes\.com\/recipes\/\d+\/.+\/"
@@ -18,21 +49,26 @@ soup = soup.find_all("a")
 
 # Getting all the Recipes Category Urls
 recipes_category = []
-for i in soup:
+for k, i in enumerate(soup):
+    if len(recipes_category) == num_category:
+        break
     if re.match(recipes_url_regex, i["href"]):
         recipes_category.append(i["href"])
 
 # Getting all the Recipes Urls
 recipes_urls = []
-for recipe_category in recipes_category[0:2]:
+for recipe_category in recipes_category:
     recipes_req = requests.get(recipe_category, headers={
         "User-Agent": "Mozilla/5.0 (X11 Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome /"
     })
     recipes_soup = BeautifulSoup(recipes_req.text, "html.parser")
     recipes_soup = recipes_soup.find_all("a", {"class": "card"})
-    for recipe_link in recipes_soup:
+    for k, recipe_link in enumerate(recipes_soup):
+        if len(recipes_urls) == num_recipes:
+            break
         if re.match(recipe_url_regex, recipe_link["href"]):
             recipes_urls.append(recipe_link["href"])
+
 
 # Filtering out unnecessary data
 def filter_recipe_json(recipe_data):
@@ -89,5 +125,5 @@ for recipe_url in recipes_urls:
     except Exception:
         print(f"Failed to scrape recipe: {recipe_url}")
 
-with open("data.json", "w") as f:
+with open(output_file if output_file.endswith(".json") else output_file + ".json", "w") as f:
     json.dump(data, f, indent=4)
