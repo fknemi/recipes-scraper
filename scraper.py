@@ -4,7 +4,6 @@ import json
 import re
 import requests
 import argparse
-import itertools
 from __utils__ import parse_category_urls, get_category, get_category_recipes_urls, get_recipe, read_progress, save_progress, get_proxies
 from requests.adapters import HTTPAdapter, Retry
 
@@ -13,9 +12,9 @@ parser = argparse.ArgumentParser(
     description='Recipes scraper for allrecipes.com')
 
 parser.add_argument('-nc', '--number-of-categories', type=int, default=sys.maxsize,
-                    help='The number of recipe categories to scrape. The default is max.')
+                    help='The number of recipe categories to scrape. The default is all.')
 parser.add_argument('-nr', '--number-of-recipes', type=int, default=sys.maxsize,
-                    help='The number of recipes to scrape. The default is max.')
+                    help='The number of recipes to scrape. The default is all.')
 parser.add_argument("-o", '--output-file', type=str, default='recipes.json',
                     help='The file to save the scraped recipes to. The default is "recipes.json".')
 parser.add_argument("-c", '--continue-progress', default=False,
