@@ -1,129 +1,121 @@
+import time
 import sys
 import json
-import selenium
 import re
 import requests
 import argparse
-from bs4 import BeautifulSoup
+import itertools
+from __utils__ import parse_category_urls, get_category, get_category_recipes_urls, get_recipe, read_progress, save_progress, get_proxies
+from requests.adapters import HTTPAdapter, Retry
 
 
-parser = argparse.ArgumentParser(description='Process some integers.')
+parser = argparse.ArgumentParser(
+    description='Recipes scraper for allrecipes.com')
 
-
-parser.add_argument('--num-category', type=int, default=sys.maxsize,
+parser.add_argument('-nc', '--number-of-categories', type=int, default=sys.maxsize,
                     help='The number of recipe categories to scrape. The default is max.')
-parser.add_argument('--num-recipes', type=int, default=sys.maxsize,
+parser.add_argument('-nr', '--number-of-recipes', type=int, default=sys.maxsize,
                     help='The number of recipes to scrape. The default is max.')
-parser.add_argument('--output-file', type=str, default='recipes.json',
+parser.add_argument("-o", '--output-file', type=str, default='recipes.json',
                     help='The file to save the scraped recipes to. The default is "recipes.json".')
-
+parser.add_argument("-c", '--continue-progress', default=False,
+                    help='Continue scraping from the last progress.', action='store_true')
+parser.add_argument('-p', '--proxy', default=None,
+                    help='Enable proxies to scrape. Default is Disabled', action='store_true')
+parser.add_argument('-pf', '--proxy-file', default="proxies.txt",
+                    help='Specify custom proxies file to use.', required=False)
 
 args = parser.parse_args()
 
+max_recipes = args.number_of_recipes
+max_categories = args.number_of_categories
+output_file = args.output_file
+continue_progress = args.continue_progress
+use_proxy = args.proxy
+proxy_file = args.proxy_file
 
 
-num_recipes = args.num_recipes
-num_category = args.num_category
-output_file = args.output_file or "recipes.json"
+s = requests.Session()
+proxy_counter = 0
+
+retries = Retry(total=5,
+                backoff_factor=0.1,
+                status_forcelist=[500, 502, 503, 504])
+s.mount('http://', HTTPAdapter(max_retries=retries))
+s.headers = {
+    "User-Agent": "Mozilla/5.0 (X11 Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome /"
+}
+s.timeout = 10
 
 
-if num_recipes == 0:
-    print("The number of recipes to scrape must be greater than 0.")
-    sys.exit(1)
-if num_category == 0:
-    print("The number of categories to scrape must be greater than 0.")
-    sys.exit(1)
+progress = {
+    "category": None,
+    "recipe": None,
+    "downloaded_count": 0,
+    "categories": [],
+    "category_urls": [],
+    "recipe_urls": [],
+    "failed_recipes": []
+}
+
+proxies = []
+if use_proxy:
+    proxies = get_proxies(proxy_file)
+    s.proxies = proxies
 
 
-recipe_url_regex = r"https://www\.allrecipes\.com/recipe/\d+/.+"
-recipes_url_regex = r"https:\/\/www\.allrecipes\.com\/recipes\/\d+\/.+\/"
+if continue_progress:
+    progress = read_progress()
+    recipe_categories = progress["categories"]
+else:
+    recipe_categories, proxy_counter = parse_category_urls(
+        s, proxy_counter, proxies, max_categories, use_proxy)
 
-req = requests.get("https://www.allrecipes.com/recipes-a-z-6735880", headers={
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
-})
+
+recipes_count = 0
 
 
-soup = BeautifulSoup(req.text, "html.parser")
-soup = soup.find("div", {"class": "alphabetical-list"})
-soup = soup.find_all("a")
-
-# Getting all the Recipes Category Urls
-recipes_category = []
-for k, i in enumerate(soup):
-    if len(recipes_category) == num_category:
-        break
-    if re.match(recipes_url_regex, i["href"]):
-        recipes_category.append(i["href"])
-
-# Getting all the Recipes Urls
-recipes_urls = []
-for recipe_category in recipes_category:
-    recipes_req = requests.get(recipe_category, headers={
-        "User-Agent": "Mozilla/5.0 (X11 Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome /"
-    })
-    recipes_soup = BeautifulSoup(recipes_req.text, "html.parser")
-    recipes_soup = recipes_soup.find_all("a", {"class": "card"})
-    for k, recipe_link in enumerate(recipes_soup):
-        if len(recipes_urls) == num_recipes:
+def scrape_recipes(s, progress, recipe_categories, max_categories, max_recipes):
+    global proxy_counter, recipes_count, proxies, use_proxy
+    for i, category_url in enumerate(recipe_categories):
+        if i == max_categories:
             break
-        if re.match(recipe_url_regex, recipe_link["href"]):
-            recipes_urls.append(recipe_link["href"])
+        progress["category"] = category_url
+        category, proxy_counter = get_category(
+            s, category_url, proxy_counter, proxies, use_proxy)
+        if continue_progress:
+            category_urls = progress["category_urls"]
+        else:
+            category_urls = get_category_recipes_urls(
+                category)
+            progress["category_urls"] = category_urls
+        for j, recipe_url in enumerate(category_urls):
+            if recipes_count == max_recipes:
+                break
+            recipes_count += 1
+            progress["recipe"] = recipe_url
+            recipe_data, proxy_counter = get_recipe(
+                s, recipe_url, proxy_counter, proxies, use_proxy)
+            if recipe_data:
+                try:
+                    with open("recipes.json", "r") as f:
+                        data = json.load(f)
+                except Exception:
+                    data = []
+                data.append(recipe_data)
+                with open("recipes.json", "w") as f:
+                    json.dump(data, f)
+                print("successfully scraped recipe: " + recipe_url)
+                progress["recipe"] = recipe_url
+            else:
+                progress["failed_recipes"].append(recipe_url)
+                print("failed to scrape recipe: " + recipe_url)
+            progress["downloaded_count"] += 1
+            progress["category_urls"].pop(j)
+            save_progress(progress)
+
+        if len(progress["categories"]) != 0:
+            progress["categories"].pop(i)
 
 
-# Filtering out unnecessary data
-def filter_recipe_json(recipe_data):
-    recipe_data.pop("@context", None)
-    recipe_data.pop("@type", None)
-    try:
-        recipe_data["image"].pop("@type", None)
-    except Exception:
-        pass
-    try:
-        recipe_data["video"].pop("@type", None)
-    except Exception:
-        pass
-    recipe_data.pop("publisher", None)
-    recipe_data.pop("mainEntityOfPage", None)
-    try:
-        recipe_data["aggregateRating"].pop("@type", None)
-    except Exception:
-        pass
-    try:
-        recipe_data["nutrition"].pop("@type", None)
-    except Exception:
-        pass
-    try:
-        for review in recipe_data["review"]:
-            review.pop("@type", None)
-            review["author"].pop("@type", None)
-            review["reviewRating"].pop("@type", None)
-    except Exception:
-        pass
-    for author in recipe_data["author"]:
-        author.pop("@type", None)
-    for instruction in recipe_data["recipeInstructions"]:
-        instruction.pop("@type", None)
-        try:
-            if instruction["image"]:
-                for image in instruction["image"]:
-                    image.pop("@type", None)
-        except Exception:
-            pass
-    return recipe_data
-
-
-data = []
-for recipe_url in recipes_urls:
-    recipe_req = requests.get(recipe_url, headers={
-        "User-Agent": "Mozilla/5.0 (X11 Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome /"
-    })
-    recipe_soup = BeautifulSoup(recipe_req.text, "html.parser")
-    recipe_data = recipe_soup.find("script", {"class": "allrecipes-schema"})
-    try:
-        data.append(filter_recipe_json(json.loads(str(recipe_data.text))[0]))
-        print(f"Successfully scraped recipe: {recipe_url}")
-    except Exception:
-        print(f"Failed to scrape recipe: {recipe_url}")
-
-with open(output_file if output_file.endswith(".json") else output_file + ".json", "w") as f:
-    json.dump(data, f, indent=4)
+scrape_recipes(s, progress, recipe_categories, max_categories, max_recipes)
