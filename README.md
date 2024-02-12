@@ -2,7 +2,8 @@
 ## Installation
 ### To install the Recipes Scraper, follow these steps:
 
-- Clone the repository: ```git clone https://github.com/DyingintheDarkness/recipes-scraper.git```<br/>
+
+- Clone the repository: ```git clone https://github.com/fknemi/recipes-scraper.git```<br/>
 - Navigate to the project directory: cd recipes-scraper<br/>
 - Install the dependencies: pip install -r requirements.txt<br/>
 
